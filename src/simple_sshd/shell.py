@@ -312,7 +312,8 @@ def _run_windows_pty(
     channel.settimeout(0.2)
     try:
         while _winpty_is_alive(process):
-            _apply_winpty_resizes(process, resize_queue)
+            if not _apply_winpty_resizes(process, resize_queue):
+                break
             try:
                 data = channel.recv(32768)
             except socket.timeout:
@@ -321,12 +322,10 @@ def _run_windows_pty(
                 break
             if not data:
                 break
-            _winpty_write(process, data)
+            if not _winpty_write(process, data):
+                break
     finally:
-        try:
-            process.close()
-        except Exception:
-            pass
+        _close_winpty(process)
 
     reader.join(timeout=2)
     exit_status = int(getattr(process, "exitstatus", 0) or 0)
@@ -350,34 +349,54 @@ def _copy_winpty_output(process: object, channel: paramiko.Channel) -> None:
             return
 
 
-def _winpty_write(process: object, data: bytes) -> None:
+def _winpty_write(process: object, data: bytes) -> bool:
     text = data.decode(_console_encoding(), errors="replace")
-    process.write(text)  # type: ignore[attr-defined]
+    try:
+        process.write(text)  # type: ignore[attr-defined]
+    except (EOFError, OSError):
+        return False
+    return True
 
 
 def _winpty_is_alive(process: object) -> bool:
     isalive = getattr(process, "isalive", None)
     if callable(isalive):
-        return bool(isalive())
+        try:
+            return bool(isalive())
+        except (EOFError, OSError):
+            return False
     return True
 
 
 def _apply_winpty_resizes(
     process: object, resize_queue: queue.Queue[tuple[int, int]]
-) -> None:
+) -> bool:
     while True:
         try:
             rows, cols = resize_queue.get_nowait()
         except queue.Empty:
-            return
+            return True
         for method_name, args in (
             ("set_size", (cols, rows)),
             ("setwinsize", (rows, cols)),
         ):
             method = getattr(process, method_name, None)
             if callable(method):
-                method(*args)
+                try:
+                    method(*args)
+                except (EOFError, OSError):
+                    return False
                 break
+
+
+def _close_winpty(process: object) -> None:
+    close = getattr(process, "close", None)
+    if not callable(close):
+        return
+    try:
+        close()
+    except (EOFError, OSError):
+        pass
 
 
 def _drain_resize_queue(resize_queue: queue.Queue[tuple[int, int]]) -> None:
