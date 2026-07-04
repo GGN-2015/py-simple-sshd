@@ -64,27 +64,28 @@ def run_shell_session(
     environment: Mapping[str, str] | None = None,
     command: str | None = None,
 ) -> int:
-    if command is not None:
-        return _run_pipe_process(
-            channel=channel,
-            argv=_command_argv(shell, command),
-            resize_queue=resize_queue,
-            environment=environment,
-        )
-
     if pty is not None:
+        argv = _command_argv(shell, command) if command is not None else [shell]
         if os.name == "nt":
             return _run_windows_pty(
                 channel=channel,
-                shell=shell,
+                argv=argv,
                 pty=pty,
                 resize_queue=resize_queue,
                 environment=environment,
             )
         return _run_posix_pty(
             channel=channel,
-            shell=shell,
+            argv=argv,
             pty=pty,
+            resize_queue=resize_queue,
+            environment=environment,
+        )
+
+    if command is not None:
+        return _run_pipe_process(
+            channel=channel,
+            argv=_command_argv(shell, command),
             resize_queue=resize_queue,
             environment=environment,
         )
@@ -101,6 +102,15 @@ def _merged_environment(environment: Mapping[str, str] | None) -> dict[str, str]
     merged = os.environ.copy()
     if environment:
         merged.update(environment)
+    return merged
+
+
+def _child_environment(
+    environment: Mapping[str, str] | None, pty: PtyRequest | None = None
+) -> dict[str, str]:
+    merged = _merged_environment(environment)
+    if pty is not None and pty.term:
+        merged["TERM"] = pty.term
     return merged
 
 
@@ -126,7 +136,7 @@ def _run_pipe_process(
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
-        env=_merged_environment(environment),
+        env=_child_environment(environment),
     )
 
     stdout_thread = threading.Thread(
@@ -195,7 +205,7 @@ def _copy_process_output(process: subprocess.Popen[bytes], channel: paramiko.Cha
 def _run_posix_pty(
     *,
     channel: paramiko.Channel,
-    shell: str,
+    argv: list[str],
     pty: PtyRequest,
     resize_queue: queue.Queue[tuple[int, int]],
     environment: Mapping[str, str] | None,
@@ -205,7 +215,7 @@ def _run_posix_pty(
     import struct
     import termios
 
-    child_environment = _merged_environment(environment)
+    child_environment = _child_environment(environment, pty)
 
     def set_winsize(fd: int, rows: int, cols: int) -> None:
         packed = struct.pack("HHHH", rows, cols, 0, 0)
@@ -215,7 +225,7 @@ def _run_posix_pty(
     if pid == 0:
         os.environ.clear()
         os.environ.update(child_environment)
-        os.execv(shell, [Path(shell).name])
+        os.execv(argv[0], argv)
 
     set_winsize(master_fd, pty.height, pty.width)
     exit_status = 0
@@ -283,7 +293,7 @@ def _apply_posix_resizes(
 def _run_windows_pty(
     *,
     channel: paramiko.Channel,
-    shell: str,
+    argv: list[str],
     pty: PtyRequest,
     resize_queue: queue.Queue[tuple[int, int]],
     environment: Mapping[str, str] | None,
@@ -296,8 +306,8 @@ def _run_windows_pty(
         ) from exc
 
     process = PtyProcess.spawn(
-        shell,
-        env=_merged_environment(environment),
+        argv,
+        env=_child_environment(environment, pty),
         dimensions=(pty.height, pty.width),
     )
 

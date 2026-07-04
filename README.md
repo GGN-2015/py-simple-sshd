@@ -67,5 +67,9 @@ simple-sshd --host 127.0.0.1 --port 2222 --shell C:\Windows\System32\cmd.exe --p
 - Password files are read as UTF-8 text. Trailing line endings are removed, while
   other whitespace is preserved.
 - Host keys are persistent by default so clients can verify the server identity.
+- ANSI/VT escape sequences, including color, bold, cursor movement, clear-screen
+  commands, and raw ESC input, are forwarded through the SSH channel. PTY
+  sessions set `TERM` from the client's pty request so terminal-aware programs
+  can enable their normal ANSI behavior.
 - POSIX systems use a real pty for terminal sessions. Windows terminal sessions
   use `pywinpty`; non-pty sessions use standard process pipes.
