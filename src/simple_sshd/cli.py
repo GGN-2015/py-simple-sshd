@@ -8,6 +8,7 @@ import signal
 import sys
 from pathlib import Path
 
+from .admin import relaunch_as_admin
 from .errors import SimpleSSHDError
 from .server import SSHDConfig, SimpleSSHD
 from .shell import default_shell
@@ -41,6 +42,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Private host key file. Created automatically when omitted.",
     )
     parser.add_argument(
+        "--root",
+        action="store_true",
+        help="Relaunch simple-sshd with administrator/root privileges.",
+    )
+    parser.add_argument(
         "--log-level",
         default="INFO",
         choices=("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"),
@@ -50,8 +56,16 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
     parser = build_parser()
-    args = parser.parse_args(argv)
+    args = parser.parse_args(raw_argv)
+
+    if args.root:
+        try:
+            return relaunch_as_admin(raw_argv)
+        except SimpleSSHDError as exc:
+            parser.error(str(exc))
+
     logging.basicConfig(
         level=getattr(logging, args.log_level),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",

@@ -20,6 +20,13 @@ simple-sshd \
   --authorized-keys /etc/simple-sshd/authorized_keys
 ```
 
+Use `--root` when the daemon and the shells it starts should run with
+administrator/root privileges:
+
+```bash
+simple-sshd --root --host 0.0.0.0 --port 22 --shell /bin/bash --authorized-keys /etc/simple-sshd/authorized_keys
+```
+
 Password authentication is disabled unless `--password-file` is provided:
 
 ```bash
@@ -49,6 +56,7 @@ simple-sshd --host 127.0.0.1 --port 2222 --shell C:\Windows\System32\cmd.exe --p
 - `--authorized-keys`: OpenSSH `authorized_keys` file for public-key auth
 - `--password-file`: text file whose content is accepted as the SSH password
 - `--host-key`: private SSH host key; generated under `~/.simple-sshd` if omitted
+- `--root`: relaunch the daemon with administrator/root privileges before serving
 - `--log-level`: `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`
 
 ## Notes
