@@ -6,6 +6,7 @@ import argparse
 import logging
 import signal
 import sys
+import time
 from pathlib import Path
 
 from .admin import relaunch_as_admin
@@ -13,9 +14,20 @@ from .errors import SimpleSSHDError
 from .server import SSHDConfig, SimpleSSHD
 from .shell import default_shell
 
+WINDOWS_ERROR_EXIT_DELAY_SECONDS = 5.0
+
+
+class SimpleSSHDArgumentParser(argparse.ArgumentParser):
+    def exit(self, status: int = 0, message: str | None = None) -> None:
+        if message:
+            self._print_message(message, sys.stderr)
+        if status:
+            sleep_before_error_exit()
+        raise SystemExit(status)
+
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = SimpleSSHDArgumentParser(
         prog="simple-sshd",
         description="Run a small Paramiko-based SSH daemon.",
     )
@@ -101,4 +113,15 @@ def main(argv: list[str] | None = None) -> int:
         return 130
     except Exception as exc:
         print(f"simple-sshd: {exc}", file=sys.stderr)
+        sleep_before_error_exit()
         return 1
+
+
+def sleep_before_error_exit() -> None:
+    if sys.platform != "win32":
+        return
+    print(
+        f"simple-sshd: exiting in {WINDOWS_ERROR_EXIT_DELAY_SECONDS:g} seconds...",
+        file=sys.stderr,
+    )
+    time.sleep(WINDOWS_ERROR_EXIT_DELAY_SECONDS)

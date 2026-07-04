@@ -27,6 +27,9 @@ administrator/root privileges:
 simple-sshd --root --host 0.0.0.0 --port 22 --shell /bin/bash --authorized-keys /etc/simple-sshd/authorized_keys
 ```
 
+On Windows, errors printed in the elevated `--root` console pause briefly before
+exit so the message remains visible.
+
 Password authentication is disabled unless `--password-file` is provided:
 
 ```bash

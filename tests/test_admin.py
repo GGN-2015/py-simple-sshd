@@ -4,6 +4,8 @@ import os
 import sys
 from types import SimpleNamespace
 
+import pytest
+
 from simple_sshd import admin
 from simple_sshd import cli
 from simple_sshd.errors import ConfigurationError
@@ -77,3 +79,38 @@ def test_cli_root_relaunches_without_starting_server(monkeypatch):
 
     assert cli.main(["--root", "--host", "0.0.0.0", "--port", "22"]) == 0
     assert calls == [["--root", "--host", "0.0.0.0", "--port", "22"]]
+
+
+def test_cli_parse_errors_pause_before_exit_on_windows(monkeypatch, capsys):
+    sleeps: list[float] = []
+    monkeypatch.setattr(cli.sys, "platform", "win32")
+    monkeypatch.setattr(cli.time, "sleep", lambda seconds: sleeps.append(seconds))
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["--port", "not-a-port"])
+
+    assert exc.value.code == 2
+    assert sleeps == [cli.WINDOWS_ERROR_EXIT_DELAY_SECONDS]
+    assert "exiting in 5 seconds" in capsys.readouterr().err
+
+
+def test_cli_unexpected_errors_pause_before_return_on_windows(monkeypatch, capsys):
+    sleeps: list[float] = []
+
+    class FailingServer:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            pass
+
+        def serve_forever(self) -> int:
+            raise RuntimeError("boom")
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(cli.sys, "platform", "win32")
+    monkeypatch.setattr(cli.time, "sleep", lambda seconds: sleeps.append(seconds))
+    monkeypatch.setattr(cli, "SimpleSSHD", FailingServer)
+
+    assert cli.main(["--password-file", "unused.txt"]) == 1
+    assert sleeps == [cli.WINDOWS_ERROR_EXIT_DELAY_SECONDS]
+    assert "simple-sshd: boom" in capsys.readouterr().err
