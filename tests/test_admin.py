@@ -94,6 +94,25 @@ def test_cli_parse_errors_pause_before_exit_on_windows(monkeypatch, capsys):
     assert "exiting in 5 seconds" in capsys.readouterr().err
 
 
+def test_cli_parse_error_wait_handles_keyboard_interrupt(monkeypatch, capsys):
+    monkeypatch.setattr(cli.sys, "platform", "win32")
+
+    def interrupted_sleep(seconds: float) -> None:
+        assert seconds == cli.WINDOWS_ERROR_EXIT_DELAY_SECONDS
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli.time, "sleep", interrupted_sleep)
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["--port", "not-a-port"])
+
+    assert exc.value.code == 130
+    stderr = capsys.readouterr().err
+    assert "exiting in 5 seconds" in stderr
+    assert "interrupted, exiting" in stderr
+    assert "Traceback" not in stderr
+
+
 def test_cli_unexpected_errors_pause_before_return_on_windows(monkeypatch, capsys):
     sleeps: list[float] = []
 
@@ -114,3 +133,32 @@ def test_cli_unexpected_errors_pause_before_return_on_windows(monkeypatch, capsy
     assert cli.main(["--password-file", "unused.txt"]) == 1
     assert sleeps == [cli.WINDOWS_ERROR_EXIT_DELAY_SECONDS]
     assert "simple-sshd: boom" in capsys.readouterr().err
+
+
+def test_cli_unexpected_error_wait_handles_keyboard_interrupt(monkeypatch, capsys):
+    class FailingServer:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            pass
+
+        def serve_forever(self) -> int:
+            raise RuntimeError("boom")
+
+        def close(self) -> None:
+            pass
+
+    def interrupted_sleep(seconds: float) -> None:
+        assert seconds == cli.WINDOWS_ERROR_EXIT_DELAY_SECONDS
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli.sys, "platform", "win32")
+    monkeypatch.setattr(cli.time, "sleep", interrupted_sleep)
+    monkeypatch.setattr(cli, "SimpleSSHD", FailingServer)
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["--password-file", "unused.txt"])
+
+    assert exc.value.code == 130
+    stderr = capsys.readouterr().err
+    assert "simple-sshd: boom" in stderr
+    assert "interrupted, exiting" in stderr
+    assert "Traceback" not in stderr

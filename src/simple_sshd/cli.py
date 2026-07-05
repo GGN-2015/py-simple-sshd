@@ -124,4 +124,8 @@ def sleep_before_error_exit() -> None:
         f"simple-sshd: exiting in {WINDOWS_ERROR_EXIT_DELAY_SECONDS:g} seconds...",
         file=sys.stderr,
     )
-    time.sleep(WINDOWS_ERROR_EXIT_DELAY_SECONDS)
+    try:
+        time.sleep(WINDOWS_ERROR_EXIT_DELAY_SECONDS)
+    except KeyboardInterrupt:
+        print("simple-sshd: interrupted, exiting.", file=sys.stderr)
+        raise SystemExit(130) from None
