@@ -61,12 +61,15 @@ simple-sshd --host 127.0.0.1 --port 2222 --shell C:\Windows\System32\cmd.exe --p
 - `--host-key`: private SSH host key; generated under `~/.simple-sshd` if omitted
 - `--root`: relaunch the daemon with administrator/root privileges before serving
 - `--log-level`: `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`
+- `--log-file`: persistent log file, default `~/.simple-sshd/simple-sshd.log`
 
 ## Notes
 
 - Password files are read as UTF-8 text. Trailing line endings are removed, while
   other whitespace is preserved.
 - Host keys are persistent by default so clients can verify the server identity.
+- Runtime listener, client, and channel errors are logged and isolated so one
+  failing connection does not stop the daemon.
 - ANSI/VT escape sequences, including color, bold, cursor movement, clear-screen
   commands, and raw ESC input, are forwarded through the SSH channel. PTY
   sessions set `TERM` from the client's pty request so terminal-aware programs

@@ -18,6 +18,7 @@ from .hostkey import load_or_create_host_key
 from .shell import PtyRequest, resolve_shell, run_shell_session
 
 LOG = logging.getLogger(__name__)
+ACCEPT_ERROR_BACKOFF_SECONDS = 0.25
 
 
 @dataclass(frozen=True)
@@ -225,19 +226,35 @@ class SimpleSSHD:
 
         assert self._socket is not None
         while not self._stop.is_set():
+            client: socket.socket | None = None
             try:
                 client, address = self._socket.accept()
             except socket.timeout:
                 continue
             except OSError:
-                break
-            thread = threading.Thread(
-                target=self._handle_client,
-                args=(client, address),
-                name=f"simple-sshd-client-{address[0]}:{address[1]}",
-                daemon=True,
-            )
-            thread.start()
+                if self._stop.is_set():
+                    break
+                LOG.exception("listener accept failed; continuing")
+                self._wait_after_runtime_error()
+                continue
+            except Exception:
+                LOG.exception("listener loop failed; continuing")
+                self._close_client_socket(client)
+                self._wait_after_runtime_error()
+                continue
+
+            try:
+                thread = threading.Thread(
+                    target=self._handle_client,
+                    args=(client, address),
+                    name=f"simple-sshd-client-{_format_address(address)}",
+                    daemon=True,
+                )
+                thread.start()
+            except Exception:
+                LOG.exception("failed to start client handler for %s", address)
+                self._close_client_socket(client)
+                self._wait_after_runtime_error()
         self.close()
         return 0
 
@@ -246,14 +263,17 @@ class SimpleSSHD:
         if self._socket is not None:
             try:
                 self._socket.close()
-            except OSError:
-                pass
+            except Exception:
+                LOG.debug("failed to close listener socket", exc_info=True)
 
         with self._transports_lock:
             transports = list(self._transports)
             self._transports.clear()
         for transport in transports:
-            transport.close()
+            try:
+                transport.close()
+            except Exception:
+                LOG.debug("failed to close transport", exc_info=True)
 
     def _bind(self) -> None:
         if self._socket is not None:
@@ -282,32 +302,44 @@ class SimpleSSHD:
         raise ConfigurationError("unable to resolve bind address")
 
     def _handle_client(self, client: socket.socket, address: object) -> None:
-        transport = paramiko.Transport(client)
-        transport.local_version = "SSH-2.0-simple-sshd"
-        transport.add_server_key(self.host_key)
-        server = SimpleServerInterface(self.authenticator, self.config.banner)
-
-        with self._transports_lock:
-            self._transports.add(transport)
+        transport: paramiko.Transport | None = None
         try:
+            transport = paramiko.Transport(client)
+            transport.local_version = "SSH-2.0-simple-sshd"
+            transport.add_server_key(self.host_key)
+            server = SimpleServerInterface(self.authenticator, self.config.banner)
+
+            with self._transports_lock:
+                self._transports.add(transport)
+
             transport.start_server(server=server)
             while transport.is_active() and not self._stop.is_set():
                 channel = transport.accept(timeout=1)
                 if channel is None:
                     continue
-                thread = threading.Thread(
-                    target=self._handle_channel,
-                    args=(server, channel),
-                    name=f"simple-sshd-channel-{channel.get_id()}",
-                    daemon=True,
-                )
-                thread.start()
+                try:
+                    thread = threading.Thread(
+                        target=self._handle_channel,
+                        args=(server, channel),
+                        name=f"simple-sshd-channel-{channel.get_id()}",
+                        daemon=True,
+                    )
+                    thread.start()
+                except Exception:
+                    LOG.exception("failed to start channel handler")
+                    self._close_channel(channel)
         except Exception:
             LOG.exception("client session failed for %s", address)
         finally:
-            transport.close()
-            with self._transports_lock:
-                self._transports.discard(transport)
+            if transport is not None:
+                try:
+                    transport.close()
+                except Exception:
+                    LOG.debug("failed to close client transport", exc_info=True)
+                with self._transports_lock:
+                    self._transports.discard(transport)
+            else:
+                self._close_client_socket(client)
 
     def _handle_channel(
         self, server: SimpleServerInterface, channel: paramiko.Channel
@@ -333,9 +365,39 @@ class SimpleSSHD:
             except OSError:
                 pass
         finally:
-            server.cleanup_channel(channel)
+            try:
+                server.cleanup_channel(channel)
+            except Exception:
+                LOG.debug("failed to cleanup channel state", exc_info=True)
+            self._close_channel(channel)
+
+    def _wait_after_runtime_error(self) -> None:
+        if ACCEPT_ERROR_BACKOFF_SECONDS <= 0:
+            return
+        self._stop.wait(ACCEPT_ERROR_BACKOFF_SECONDS)
+
+    @staticmethod
+    def _close_client_socket(client: socket.socket | None) -> None:
+        if client is None:
+            return
+        try:
+            client.close()
+        except Exception:
+            LOG.debug("failed to close client socket", exc_info=True)
+
+    @staticmethod
+    def _close_channel(channel: paramiko.Channel) -> None:
+        try:
             channel.close()
+        except Exception:
+            LOG.debug("failed to close channel", exc_info=True)
 
 
 def serve_forever(config: SSHDConfig) -> int:
     return SimpleSSHD(config).serve_forever()
+
+
+def _format_address(address: object) -> str:
+    if isinstance(address, tuple) and len(address) >= 2:
+        return f"{address[0]}:{address[1]}"
+    return str(address)

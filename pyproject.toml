@@ -1,6 +1,6 @@
 [project]
 name = "py-simple-sshd"
-version = "0.1.7"
+version = "0.1.8"
 description = "A small, production-oriented SSH daemon implemented with Paramiko."
 authors = [{ name = "GGN_2015", email = "neko@jlulug.org" }]
 license = "MIT"
