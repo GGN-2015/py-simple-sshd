@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import getpass
 import queue
 import socket
 import threading
@@ -29,6 +30,7 @@ class SSHDConfig:
     authorized_keys: str | Path | None = None
     password_file: str | Path | None = None
     host_key: str | Path | None = None
+    username: str = field(default_factory=getpass.getuser)
     backlog: int = 100
     banner: str = "simple-sshd"
 
@@ -62,6 +64,9 @@ class SimpleServerInterface(paramiko.ServerInterface):
         return self._authenticator.allowed_auths()
 
     def check_auth_publickey(self, username: str, key: paramiko.PKey) -> int:
+        if not self._authenticator.username_allowed(username):
+            LOG.warning("rejected public key for unknown user %s", username)
+            return paramiko.AUTH_FAILED
         if self._authenticator.check_public_key(key):
             LOG.info("accepted public key for user %s", username)
             return paramiko.AUTH_SUCCESSFUL
@@ -69,6 +74,9 @@ class SimpleServerInterface(paramiko.ServerInterface):
         return paramiko.AUTH_FAILED
 
     def check_auth_password(self, username: str, password: str) -> int:
+        if not self._authenticator.username_allowed(username):
+            LOG.warning("rejected password for unknown user %s", username)
+            return paramiko.AUTH_FAILED
         if self._authenticator.check_password(password):
             LOG.info("accepted password for user %s", username)
             return paramiko.AUTH_SUCCESSFUL
@@ -182,10 +190,13 @@ class SimpleSSHD:
         self._transports_lock = threading.Lock()
 
         self.shell = resolve_shell(config.shell)
+        if not config.username:
+            raise ConfigurationError("username must not be empty")
         self.host_key = load_or_create_host_key(config.host_key)
         self.authenticator = Authenticator(
             authorized_keys=AuthorizedKeys.load(config.authorized_keys),
             password=load_password_file(config.password_file),
+            username=config.username,
         )
         if not self.authenticator.enabled:
             raise ConfigurationError(

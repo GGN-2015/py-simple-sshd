@@ -11,13 +11,6 @@ from simple_sshd import cli
 from simple_sshd.errors import ConfigurationError
 
 
-def test_without_root_flag_removes_only_root_flags():
-    assert admin.without_root_flag(["--root", "--port", "22", "--root"]) == [
-        "--port",
-        "22",
-    ]
-
-
 def test_elevated_command_relaunches_simple_sshd_module():
     command = admin.elevated_command(["--root", "--host", "0.0.0.0"])
 
@@ -25,6 +18,7 @@ def test_elevated_command_relaunches_simple_sshd_module():
         sys.executable,
         "-m",
         "simple_sshd",
+        "--root",
         "--host",
         "0.0.0.0",
     ]
@@ -42,7 +36,14 @@ def test_relaunch_as_admin_uses_py_admin_launch(monkeypatch):
     assert admin.relaunch_as_admin(["--root", "--port", "22"]) == 7
     assert calls == [
         (
-            [sys.executable, "-m", "simple_sshd", "--port", "22"],
+            [
+                sys.executable,
+                "-m",
+                "simple_sshd",
+                "--root",
+                "--port",
+                "22",
+            ],
             os.getcwd(),
             True,
         )
@@ -75,10 +76,62 @@ def test_cli_root_relaunches_without_starting_server(monkeypatch):
             raise AssertionError("server should not be constructed for --root")
 
     monkeypatch.setattr(cli, "relaunch_as_admin", fake_relaunch)
+    monkeypatch.setattr(cli, "is_running_as_admin", lambda: False)
     monkeypatch.setattr(cli, "SimpleSSHD", FailingServer)
 
     assert cli.main(["--root", "--host", "0.0.0.0", "--port", "22"]) == 0
     assert calls == [["--root", "--host", "0.0.0.0", "--port", "22"]]
+
+
+def test_cli_uses_current_user_as_default_username(monkeypatch, tmp_path):
+    configs = []
+
+    class CapturingServer:
+        def __init__(self, config):
+            configs.append(config)
+
+        def serve_forever(self) -> int:
+            return 0
+
+    password_file = tmp_path / "password.txt"
+    password_file.write_text("secret\n", encoding="utf-8")
+
+    monkeypatch.setattr(cli.getpass, "getuser", lambda: "current-user")
+    monkeypatch.setattr(cli, "SimpleSSHD", CapturingServer)
+
+    assert cli.main(["--password-file", str(password_file), "--log-file", str(tmp_path / "log.txt")]) == 0
+    assert configs[0].username == "current-user"
+
+
+def test_cli_root_uses_root_username_when_already_elevated(monkeypatch, tmp_path):
+    configs = []
+    relaunch_calls = []
+
+    class CapturingServer:
+        def __init__(self, config):
+            configs.append(config)
+
+        def serve_forever(self) -> int:
+            return 0
+
+    password_file = tmp_path / "password.txt"
+    password_file.write_text("secret\n", encoding="utf-8")
+
+    monkeypatch.setattr(cli, "is_running_as_admin", lambda: True)
+    monkeypatch.setattr(cli, "relaunch_as_admin", lambda argv: relaunch_calls.append(argv) or 0)
+    monkeypatch.setattr(cli, "SimpleSSHD", CapturingServer)
+
+    assert cli.main(
+        [
+            "--root",
+            "--password-file",
+            str(password_file),
+            "--log-file",
+            str(tmp_path / "log.txt"),
+        ]
+    ) == 0
+    assert relaunch_calls == []
+    assert configs[0].username == admin.ROOT_USERNAME
 
 
 def test_cli_parse_errors_pause_before_exit_on_windows(monkeypatch, capsys):

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import getpass
 import logging
 import logging.handlers
 import signal
@@ -10,7 +11,7 @@ import sys
 import time
 from pathlib import Path
 
-from .admin import relaunch_as_admin
+from .admin import ROOT_USERNAME, is_running_as_admin, relaunch_as_admin
 from .errors import SimpleSSHDError
 from .server import SSHDConfig, SimpleSSHD
 from .shell import default_shell
@@ -110,10 +111,13 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.root:
         try:
-            return relaunch_as_admin(raw_argv)
+            if not is_running_as_admin():
+                return relaunch_as_admin(raw_argv)
         except SimpleSSHDError as exc:
             LOG.exception("administrator/root relaunch failed")
             parser.error(str(exc))
+
+    username = ROOT_USERNAME if args.root else getpass.getuser()
 
     config = SSHDConfig(
         host=args.host,
@@ -122,6 +126,7 @@ def main(argv: list[str] | None = None) -> int:
         authorized_keys=args.authorized_keys,
         password_file=args.password_file,
         host_key=args.host_key,
+        username=username,
     )
 
     try:

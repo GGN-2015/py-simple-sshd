@@ -55,6 +55,7 @@ def running_server(
             authorized_keys=authorized_keys,
             password_file=password_file,
             host_key=tmp_path / "host_key",
+            username="tester",
         )
     )
     thread = server.start()
@@ -68,6 +69,7 @@ def running_server(
 def connect_client(
     server: SimpleSSHD,
     *,
+    username: str = "tester",
     pkey: paramiko.PKey | None = None,
     password: str | None = None,
 ) -> paramiko.SSHClient:
@@ -77,7 +79,7 @@ def connect_client(
     client.connect(
         hostname=host,
         port=port,
-        username="tester",
+        username=username,
         pkey=pkey,
         password=password,
         allow_agent=False,
@@ -224,3 +226,16 @@ def test_wrong_password_is_rejected(tmp_path):
     with running_server(tmp_path, password="s3cr3t") as server:
         with pytest.raises(paramiko.AuthenticationException):
             connect_client(server, password="wrong")
+
+
+def test_public_key_login_rejects_unknown_username(tmp_path):
+    client_key = paramiko.RSAKey.generate(1024)
+    with running_server(tmp_path, authorized_key=client_key) as server:
+        with pytest.raises(paramiko.AuthenticationException):
+            connect_client(server, username="unknown", pkey=client_key)
+
+
+def test_password_login_rejects_unknown_username(tmp_path):
+    with running_server(tmp_path, password="s3cr3t") as server:
+        with pytest.raises(paramiko.AuthenticationException):
+            connect_client(server, username="unknown", password="s3cr3t")

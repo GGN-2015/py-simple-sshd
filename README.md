@@ -30,6 +30,10 @@ simple-sshd --root --host 0.0.0.0 --port 22 --shell /bin/bash --authorized-keys 
 On Windows, errors printed in the elevated `--root` console pause briefly before
 exit so the message remains visible.
 
+`simple-sshd` is always single-user. Without `--root`, clients must authenticate
+as the current operating-system username. With `--root`, clients must
+authenticate as `root` on every platform, including Windows.
+
 Password authentication is disabled unless `--password-file` is provided:
 
 ```bash
@@ -70,6 +74,8 @@ simple-sshd --host 127.0.0.1 --port 2222 --shell C:\Windows\System32\cmd.exe --p
 - Host keys are persistent by default so clients can verify the server identity.
 - Runtime listener, client, and channel errors are logged and isolated so one
   failing connection does not stop the daemon.
+- The daemon rejects authentication attempts for any username other than its
+  configured single login name.
 - ANSI/VT escape sequences, including color, bold, cursor movement, clear-screen
   commands, and raw ESC input, are forwarded through the SSH channel. PTY
   sessions set `TERM` from the client's pty request so terminal-aware programs

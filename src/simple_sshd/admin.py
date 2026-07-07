@@ -9,21 +9,26 @@ from typing import Protocol
 
 from .errors import ConfigurationError
 
+ROOT_USERNAME = "root"
+
 
 class LaunchResultLike(Protocol):
     returncode: int | None
 
 
-def without_root_flag(argv: Sequence[str]) -> list[str]:
-    """Return argv with simple-sshd's --root flag removed."""
-
-    return [argument for argument in argv if argument != "--root"]
-
-
 def elevated_command(argv: Sequence[str]) -> list[str]:
     """Build the command used for the elevated simple-sshd process."""
 
-    return [sys.executable, "-m", "simple_sshd", *without_root_flag(argv)]
+    return [sys.executable, "-m", "simple_sshd", *argv]
+
+
+def is_running_as_admin() -> bool:
+    try:
+        from py_admin_launch import is_admin
+    except ImportError as exc:
+        raise ConfigurationError("py-admin-launch is required for --root") from exc
+
+    return is_admin()
 
 
 def relaunch_as_admin(argv: Sequence[str]) -> int:

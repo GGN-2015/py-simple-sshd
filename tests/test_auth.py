@@ -69,9 +69,17 @@ def test_authenticator_combines_public_key_and_password(tmp_path):
     authenticator = Authenticator(
         authorized_keys=AuthorizedKeys.load(path),
         password="s3cr3t",
+        username="tester",
     )
 
     assert authenticator.allowed_auths() == "publickey,password"
     assert authenticator.check_public_key(key)
     assert authenticator.check_password("s3cr3t")
     assert not authenticator.check_password("wrong")
+
+
+def test_authenticator_rejects_unknown_usernames():
+    authenticator = Authenticator(password="s3cr3t", username="expected")
+
+    assert authenticator.username_allowed("expected")
+    assert not authenticator.username_allowed("other")

@@ -48,6 +48,7 @@ def running_py_posix_shell_server(tmp_path: Path) -> Iterator[RunningServer]:
             shell=py_posix_shell_executable(),
             authorized_keys=authorized_keys,
             host_key=tmp_path / "host_key",
+            username="tester",
         )
     )
     thread = server.start()

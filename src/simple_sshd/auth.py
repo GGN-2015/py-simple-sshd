@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import getpass
 import hmac
 from dataclasses import dataclass
 from pathlib import Path
@@ -151,9 +152,11 @@ class Authenticator:
         *,
         authorized_keys: AuthorizedKeys | None = None,
         password: str | None = None,
+        username: str | None = None,
     ) -> None:
         self.authorized_keys = authorized_keys or AuthorizedKeys()
         self.password = password
+        self.username = username if username is not None else getpass.getuser()
 
     @property
     def publickey_enabled(self) -> bool:
@@ -174,6 +177,9 @@ class Authenticator:
         if self.password_enabled:
             methods.append("password")
         return ",".join(methods)
+
+    def username_allowed(self, username: str) -> bool:
+        return hmac.compare_digest(username, self.username)
 
     def check_public_key(self, key: paramiko.PKey) -> bool:
         return self.authorized_keys.is_authorized(key)
